@@ -6,7 +6,7 @@
       <div class="sidebar-toggle-group">
         <button
           v-if="visibility.books && !showBookSidebar"
-          @click="showBookSidebar = true"
+          @click="saveShowBookSidebar(true)"
           class="sidebar-toggle-btn"
           title="显示图书目录"
         >
@@ -17,7 +17,7 @@
         </button>
         <button
           v-if="visibility.problems && !showProblemSidebar"
-          @click="showProblemSidebar = true"
+          @click="saveShowProblemSidebar(true)"
           class="sidebar-toggle-btn"
           title="显示问题目录"
         >
@@ -33,13 +33,10 @@
     
     <!-- 图书模块 -->
     <div v-if="visibility.books" class="module-section">
-      <div class="module-header">
-        <h2>图书管理</h2>
-      </div>
       <div class="module-content">
         <transition name="sidebar-slide">
           <div v-if="showBookSidebar" class="list-area">
-            <BookList @close="showBookSidebar = false" />
+            <BookList @close="saveShowBookSidebar(false)" />
           </div>
         </transition>
         <div class="reader-area">
@@ -50,13 +47,10 @@
     
     <!-- 问题模块 -->
     <div v-if="visibility.problems" class="module-section">
-      <div class="module-header">
-        <h2>问题管理</h2>
-      </div>
       <div class="module-content">
         <transition name="sidebar-slide">
           <div v-if="showProblemSidebar" class="list-area">
-            <ProblemList @select="handleProblemSelect" @close="showProblemSidebar = false" />
+            <ProblemList @select="handleProblemSelect" @close="saveShowProblemSidebar(false)" />
           </div>
         </transition>
         <div class="reader-area">
@@ -89,15 +83,60 @@ import SystemConfig from '@/components/SystemConfig.vue'
 import * as configApi from '@/api/config'
 import type { ModuleVisibility } from '@/api/config'
 import type { Problem } from '@/api/problems'
+import { useBookStore } from '@/stores/bookStore'
+
+const bookStore = useBookStore()
 
 const visibility = ref<ModuleVisibility>({
   books: true,
-  problems: true
+  problems: false
 })
 
 const currentProblem = ref<Problem | null>(null)
-const showBookSidebar = ref(true)
-const showProblemSidebar = ref(true)
+
+// UI 状态持久化
+const STORAGE_KEYS = {
+  SHOW_BOOK_SIDEBAR: 'library-show-book-sidebar',
+  SHOW_PROBLEM_SIDEBAR: 'library-show-problem-sidebar'
+}
+
+// 从 localStorage 恢复侧边栏状态
+function loadSidebarState() {
+  try {
+    const savedShowBookSidebar = localStorage.getItem(STORAGE_KEYS.SHOW_BOOK_SIDEBAR)
+    const savedShowProblemSidebar = localStorage.getItem(STORAGE_KEYS.SHOW_PROBLEM_SIDEBAR)
+    return {
+      showBookSidebar: savedShowBookSidebar !== 'false', // 默认 true
+      showProblemSidebar: savedShowProblemSidebar !== 'false' // 默认 true
+    }
+  } catch (error) {
+    console.error('加载侧边栏状态失败:', error)
+    return { showBookSidebar: true, showProblemSidebar: true }
+  }
+}
+
+const sidebarState = loadSidebarState()
+const showBookSidebar = ref(sidebarState.showBookSidebar)
+const showProblemSidebar = ref(sidebarState.showProblemSidebar)
+
+// 保存侧边栏状态
+function saveShowBookSidebar(value: boolean) {
+  showBookSidebar.value = value
+  try {
+    localStorage.setItem(STORAGE_KEYS.SHOW_BOOK_SIDEBAR, value.toString())
+  } catch (error) {
+    console.error('保存图书侧边栏状态失败:', error)
+  }
+}
+
+function saveShowProblemSidebar(value: boolean) {
+  showProblemSidebar.value = value
+  try {
+    localStorage.setItem(STORAGE_KEYS.SHOW_PROBLEM_SIDEBAR, value.toString())
+  } catch (error) {
+    console.error('保存问题侧边栏状态失败:', error)
+  }
+}
 
 function handleVisibilityChange(newVisibility: ModuleVisibility) {
   visibility.value = { ...newVisibility }
@@ -118,6 +157,21 @@ onMounted(async () => {
     visibility.value = await configApi.getModuleVisibility()
   } catch (error) {
     console.error('加载配置失败:', error)
+  }
+  
+  // 恢复上次的状态
+  try {
+    // 先加载图书列表和分类
+    await bookStore.fetchBooks()
+    await bookStore.fetchCategories()
+    // 恢复上次选中的分类
+    if (bookStore.selectedCategory) {
+      await bookStore.fetchBooks(bookStore.selectedCategory)
+    }
+    // 恢复上次阅读的图书
+    await bookStore.restoreLastBook()
+  } catch (error) {
+    console.error('恢复状态失败:', error)
   }
 })
 </script>
@@ -156,21 +210,6 @@ onMounted(async () => {
 
 .module-section:last-child {
   border-bottom: none;
-}
-
-.module-header {
-  padding: 12px 20px;
-  background: #f8f9fa;
-  border-bottom: 1px solid #ddd;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.module-header h2 {
-  margin: 0;
-  font-size: 16px;
-  color: #666;
 }
 
 .module-content {

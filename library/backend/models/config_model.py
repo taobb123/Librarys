@@ -42,10 +42,15 @@ def get_module_visibility():
     """获取模块显示配置"""
     config = get_config('module_visibility')
     if config is None:
-        # 默认配置
-        default = {'books': True, 'problems': True}
+        # 默认配置：只显示图书模块
+        default = {'books': True, 'problems': False}
         set_config('module_visibility', default)
         return default
+    # 确保至少有一个模块被选中（默认图书模块）
+    if not config.get('books') and not config.get('problems'):
+        config['books'] = True
+        config['problems'] = False
+        set_config('module_visibility', config)
     return config
 
 def set_module_visibility(books=None, problems=None):

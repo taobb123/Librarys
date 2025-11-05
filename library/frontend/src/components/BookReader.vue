@@ -8,7 +8,7 @@
 
     <div v-else class="reader-container">
       <!-- 隐藏时显示的浮动按钮 -->
-      <div v-if="!showHeader" class="header-toggle-btn" @click="showHeader = true" title="显示标题栏">
+      <div v-if="!showHeader" class="header-toggle-btn" @click="saveShowHeader(true)" title="显示标题栏">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 12h18M3 6h18M3 18h18"/>
         </svg>
@@ -23,12 +23,12 @@
           </div>
         </div>
         <div class="reader-tools">
-          <button @click="showHeader = false" class="tool-btn" title="隐藏标题栏">
+          <button @click="saveShowHeader(false)" class="tool-btn" title="隐藏标题栏">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M18 6L6 18M6 6l12 12"/>
             </svg>
           </button>
-          <button @click="showBookmarks = !showBookmarks" class="tool-btn">
+          <button @click="saveShowBookmarks(!showBookmarks)" class="tool-btn">
             {{ showBookmarks ? '隐藏' : '显示' }}书签
           </button>
           <button @click="addCurrentBookmark" class="tool-btn primary">
@@ -156,8 +156,50 @@ const currentBook = computed(() => bookStore.currentBook)
 const bookmarks = computed(() => bookStore.bookmarks)
 const loading = ref(false)
 const error = ref('')
-const showBookmarks = ref(false)
-const showHeader = ref(true)
+
+// UI 状态持久化
+const STORAGE_KEYS = {
+  SHOW_BOOKMARKS: 'library-show-bookmarks',
+  SHOW_HEADER: 'library-show-header'
+}
+
+// 从 localStorage 恢复 UI 状态
+function loadUIState() {
+  try {
+    const savedShowBookmarks = localStorage.getItem(STORAGE_KEYS.SHOW_BOOKMARKS)
+    const savedShowHeader = localStorage.getItem(STORAGE_KEYS.SHOW_HEADER)
+    return {
+      showBookmarks: savedShowBookmarks === 'true',
+      showHeader: savedShowHeader !== 'false' // 默认 true
+    }
+  } catch (error) {
+    console.error('加载UI状态失败:', error)
+    return { showBookmarks: false, showHeader: true }
+  }
+}
+
+const uiState = loadUIState()
+const showBookmarks = ref(uiState.showBookmarks)
+const showHeader = ref(uiState.showHeader)
+
+// 监听状态变化并保存
+function saveShowBookmarks(value: boolean) {
+  showBookmarks.value = value
+  try {
+    localStorage.setItem(STORAGE_KEYS.SHOW_BOOKMARKS, value.toString())
+  } catch (error) {
+    console.error('保存书签面板状态失败:', error)
+  }
+}
+
+function saveShowHeader(value: boolean) {
+  showHeader.value = value
+  try {
+    localStorage.setItem(STORAGE_KEYS.SHOW_HEADER, value.toString())
+  } catch (error) {
+    console.error('保存标题栏状态失败:', error)
+  }
+}
 const epubContainer = ref<HTMLElement | null>(null)
 const textContainer = ref<HTMLElement | null>(null)
 const bookRef = ref<any>(null)
@@ -369,6 +411,40 @@ function goToBookmark(bookmark: any) {
     }
   }
 }
+
+async function loadBook() {
+  if (!currentBook.value) return
+  error.value = ''
+  loading.value = true
+  try {
+    const format = currentBook.value.file_format?.toLowerCase()
+    
+    if (supportedFormats.epub.includes(format)) {
+      useEpubFallback.value = false
+      try {
+        await nextTick()
+        await loadEpub()
+      } catch (err: any) {
+        console.warn('EPUB.js加载失败，使用HTML转换:', err)
+        useEpubFallback.value = true
+        await nextTick()
+        await loadText()
+      }
+    } else if (supportedFormats.pdf.includes(format)) {
+      loading.value = false
+    } else if (supportedFormats.text.includes(format)) {
+      await nextTick()
+      await loadText()
+    } else if (supportedFormats.ebook.includes(format)) {
+      loading.value = false
+    } else {
+      loading.value = false
+    }
+  } catch (err: any) {
+    error.value = err.message || '加载失败'
+    loading.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -521,14 +597,12 @@ function goToBookmark(bookmark: any) {
   padding: 12px;
   background: #f5f5f5;
   border-radius: 4px;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  position: relative;
 }
 
 .bookmark-content {
-  flex: 1;
   cursor: pointer;
+  padding-right: 50px;
 }
 
 .bookmark-content:hover {
@@ -554,13 +628,19 @@ function goToBookmark(bookmark: any) {
 }
 
 .delete-btn {
-  padding: 4px 8px;
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  padding: 2px 6px;
   background: #ff5252;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 3px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.4;
+  min-width: auto;
+  height: auto;
 }
 
 .delete-btn:hover {

@@ -25,15 +25,27 @@
       <div class="config-content">
         <div class="config-item">
           <label class="config-label">
-            <input type="checkbox" v-model="localVisibility.books" @change="saveConfig" />
-            <span>显示图书模块</span>
+            <input 
+              type="radio" 
+              name="module" 
+              :value="'books'"
+              :checked="selectedModule === 'books'"
+              @change="handleModuleChange('books')"
+            />
+            <span>图书模块</span>
           </label>
         </div>
         
         <div class="config-item">
           <label class="config-label">
-            <input type="checkbox" v-model="localVisibility.problems" @change="saveConfig" />
-            <span>显示问题模块</span>
+            <input 
+              type="radio" 
+              name="module" 
+              :value="'problems'"
+              :checked="selectedModule === 'problems'"
+              @change="handleModuleChange('problems')"
+            />
+            <span>问题模块</span>
           </label>
         </div>
       </div>
@@ -42,7 +54,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import * as configApi from '@/api/config'
 import type { ModuleVisibility } from '@/api/config'
 
@@ -55,16 +67,41 @@ const toggleButtonRef = ref<HTMLButtonElement | null>(null)
 const panelRef = ref<HTMLDivElement | null>(null)
 const localVisibility = ref<ModuleVisibility>({
   books: true,
-  problems: true
+  problems: false
+})
+
+// 计算当前选中的模块
+const selectedModule = computed(() => {
+  if (localVisibility.value.books) return 'books'
+  if (localVisibility.value.problems) return 'problems'
+  return 'books' // 默认图书模块
 })
 
 async function loadConfig() {
   try {
-    localVisibility.value = await configApi.getModuleVisibility()
+    const config = await configApi.getModuleVisibility()
+    localVisibility.value = config
+    // 确保至少有一个模块被选中（默认图书模块）
+    if (!localVisibility.value.books && !localVisibility.value.problems) {
+      localVisibility.value.books = true
+      await saveConfig()
+    }
     emit('visibilityChange', localVisibility.value)
   } catch (error) {
     console.error('加载配置失败:', error)
+    // 如果加载失败，使用默认值（图书模块）
+    localVisibility.value = { books: true, problems: false }
+    emit('visibilityChange', localVisibility.value)
   }
+}
+
+async function handleModuleChange(module: 'books' | 'problems') {
+  // 只能选择一个模块，切换时自动取消另一个
+  localVisibility.value = {
+    books: module === 'books',
+    problems: module === 'problems'
+  }
+  await saveConfig()
 }
 
 async function saveConfig() {
@@ -191,7 +228,7 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.config-label input[type="checkbox"] {
+.config-label input[type="radio"] {
   width: 18px;
   height: 18px;
   cursor: pointer;
