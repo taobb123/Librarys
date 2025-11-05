@@ -6,11 +6,15 @@ from backend.models.problem_model import (
     get_all_problems, get_problem_by_id, add_problem,
     update_problem, delete_problem, update_problem_tags
 )
+from backend.collectors.service import CollectionService
 import json
 import os
 import requests
 
 problems_bp = Blueprint('problems', __name__, url_prefix='/api/problems')
+
+# 初始化采集服务（使用组合模式）
+collection_service = CollectionService()
 
 @problems_bp.route('/list', methods=['GET'])
 def list_problems():
@@ -224,6 +228,50 @@ def analyze_problem(problem_id):
         return jsonify({
             'success': False,
             'message': f'分析失败: {str(e)}'
+        }), 500
+
+@problems_bp.route('/collect', methods=['POST'])
+def collect_questions():
+    """从社交平台采集问题"""
+    data = request.get_json()
+    topic = data.get('topic', '').strip()
+    max_results = data.get('max_results', 50)
+    platform = data.get('platform')  # 可选，指定平台
+    auto_save = data.get('auto_save', False)  # 是否自动保存
+    
+    if not topic:
+        return jsonify({
+            'success': False,
+            'message': '主题不能为空'
+        }), 400
+    
+    try:
+        result = collection_service.collect_questions(
+            topic=topic,
+            max_results=max_results,
+            platform=platform,
+            auto_save=auto_save
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'采集失败: {str(e)}'
+        }), 500
+
+@problems_bp.route('/collect/platforms', methods=['GET'])
+def get_collect_platforms():
+    """获取可用的采集平台列表"""
+    try:
+        platforms = collection_service.get_available_platforms()
+        return jsonify({
+            'success': True,
+            'data': platforms
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'获取平台列表失败: {str(e)}'
         }), 500
 
 def generate_fallback_analysis(problem):

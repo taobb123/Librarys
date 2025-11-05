@@ -23,6 +23,27 @@ export interface ProblemAnalysis {
   analysis: string
 }
 
+export interface CollectedQuestion {
+  title: string
+  content: string
+  source: string
+  source_url?: string
+  author?: string
+  tags: string[]
+  category?: string
+  metadata?: {
+    collected_at?: string
+    source_metadata?: any
+  }
+}
+
+export interface CollectResult {
+  success: boolean
+  total_collected: number
+  saved: number
+  questions: CollectedQuestion[]
+}
+
 // 获取问题列表
 export async function getProblems(category?: string, tag?: string): Promise<Problem[]> {
   const params: any = {}
@@ -84,6 +105,23 @@ export async function initSampleProblems(): Promise<{ added: number }> {
 // AI分析问题
 export async function analyzeProblem(problemId: number): Promise<ProblemAnalysis> {
   const response = await api.post(`/api/problems/${problemId}/analyze`)
+  return response.data.data
+}
+
+// 从社交平台采集问题
+export async function collectQuestions(data: {
+  topic: string
+  max_results?: number
+  platform?: string
+  auto_save?: boolean
+}): Promise<CollectResult> {
+  const response = await api.post('/api/problems/collect', data)
+  return response.data
+}
+
+// 获取可用的采集平台列表
+export async function getCollectPlatforms(): Promise<string[]> {
+  const response = await api.get('/api/problems/collect/platforms')
   return response.data.data
 }
 
