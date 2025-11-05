@@ -118,7 +118,15 @@ class DatabaseDuplicateChecker:
         if title_normalized in self._seen_titles:
             return True
         
-        # 检查数据库中的重复
+        # 对于微信热搜等实时更新的平台，使用更宽松的去重策略
+        # 只检查本次采集会话中的重复，不检查数据库中的历史记录
+        # 因为热搜是实时更新的，允许重复采集
+        source = question.source or ""
+        if "微信" in source or "热搜" in source:
+            # 微信热搜：只检查本次会话中的重复
+            return False
+        
+        # 检查数据库中的重复（其他平台）
         try:
             all_problems = self.problem_model.get_all_problems()
             for problem in all_problems:
@@ -132,6 +140,12 @@ class DatabaseDuplicateChecker:
     
     def mark_as_seen(self, question: CollectedQuestion) -> None:
         """标记问题为已处理"""
+        # 对于微信热搜等实时更新的平台，不缓存到内存中
+        # 因为热搜是实时更新的，允许重复采集
+        source = question.source or ""
+        if "微信" in source or "热搜" in source:
+            return
+        
         title_normalized = self._normalize_title(question.title)
         self._seen_titles.add(title_normalized)
     

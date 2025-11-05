@@ -142,6 +142,9 @@ class WeixinHotCollector:
             matched_items = []
             other_items = []
             
+            # 检查是否有有效的主题（非空字符串）
+            has_topic = bool(config.topic and config.topic.strip())
+            
             for item in hot_list:
                 topic_word = item.get('word', '').strip()
                 index = item.get('index', 0)
@@ -150,8 +153,11 @@ class WeixinHotCollector:
                     continue
                 
                 # 如果配置了主题，优先匹配相关话题
-                if config.topic:
-                    if config.topic in topic_word or topic_word in config.topic:
+                if has_topic:
+                    topic_lower = config.topic.strip().lower()
+                    word_lower = topic_word.lower()
+                    # 更灵活的匹配：包含关键词或关键词包含在话题中
+                    if topic_lower in word_lower or word_lower in topic_lower:
                         matched_items.append((item, index))
                     else:
                         other_items.append((item, index))
@@ -160,10 +166,15 @@ class WeixinHotCollector:
                     matched_items.append((item, index))
             
             # 优先使用匹配的话题，如果不够再补充其他话题
+            # 注意：如果用户指定了主题但没有匹配的话题，仍然返回其他话题（避免完全无数据）
             items_to_use = matched_items[:config.max_results]
             if len(items_to_use) < config.max_results:
                 remaining = config.max_results - len(items_to_use)
                 items_to_use.extend(other_items[:remaining])
+            
+            # 如果用户指定了主题但没有匹配的话题，给出提示
+            if has_topic and len(matched_items) == 0 and len(other_items) > 0:
+                print(f"[微信热搜采集器] 提示: 未找到包含主题 '{config.topic}' 的话题，返回其他热搜话题")
             
             print(f"[微信热搜采集器] 准备处理 {len(items_to_use)} 个热搜话题")
             
