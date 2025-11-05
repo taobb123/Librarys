@@ -2,9 +2,12 @@
 采集器接口定义
 使用Protocol定义接口，遵循接口编程而非类编程的原则
 """
-from typing import Protocol, List, Dict, Optional, Any
-from dataclasses import dataclass
+from typing import Protocol, List, Dict, Optional, Any, TYPE_CHECKING
+from dataclasses import dataclass, field
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from backend.collectors.interfaces import CollectedAnswer
 
 
 @dataclass
@@ -18,10 +21,30 @@ class CollectedQuestion:
     created_at: Optional[datetime] = None
     tags: List[str] = None
     metadata: Dict[str, Any] = None
+    answers: List['CollectedAnswer'] = field(default_factory=list)  # 关联的回答列表
     
     def __post_init__(self):
         if self.tags is None:
             self.tags = []
+        if self.metadata is None:
+            self.metadata = {}
+        if not hasattr(self, 'answers') or self.answers is None:
+            self.answers = []
+
+
+@dataclass
+class CollectedAnswer:
+    """采集的回答数据结构"""
+    content: str
+    author: Optional[str] = None
+    upvotes: int = 0  # 点赞数
+    downvotes: int = 0  # 点踩数
+    source_url: Optional[str] = None
+    created_at: Optional[datetime] = None
+    metadata: Dict[str, Any] = None
+    quality_score: float = 0.0  # 质量评分
+    
+    def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
 
@@ -33,6 +56,9 @@ class CollectionConfig:
     max_results: int = 50  # 最大采集数量
     platform: Optional[str] = None  # 指定平台，None表示所有平台
     filters: Dict[str, Any] = None  # 额外的过滤条件
+    collect_answers: bool = True  # 是否采集回答
+    max_answers_per_question: int = 3  # 每个问题最多采集的回答数
+    min_answer_upvotes: int = 10  # 回答最小点赞数要求
     
     def __post_init__(self):
         if self.filters is None:
@@ -85,5 +111,17 @@ class DuplicateChecker(Protocol):
     
     def mark_as_seen(self, question: CollectedQuestion) -> None:
         """标记问题为已处理"""
+        ...
+
+
+class AnswerQualityScorer(Protocol):
+    """回答质量评分器接口"""
+    
+    def score(self, answer: CollectedAnswer) -> float:
+        """计算回答质量评分
+        
+        Returns:
+            质量评分，0-1之间的浮点数
+        """
         ...
 

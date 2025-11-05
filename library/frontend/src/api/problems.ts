@@ -18,6 +18,19 @@ export interface Problem {
   updated_at: string
 }
 
+export interface Answer {
+  id: number
+  problem_id: number
+  content: string
+  author?: string
+  upvotes: number
+  downvotes: number
+  quality_score: number
+  source_url?: string
+  created_at: string
+  updated_at: string
+}
+
 export interface ProblemAnalysis {
   problem_id: number
   analysis: string
@@ -31,16 +44,28 @@ export interface CollectedQuestion {
   author?: string
   tags: string[]
   category?: string
+  answers?: CollectedAnswer[]
   metadata?: {
     collected_at?: string
     source_metadata?: any
   }
 }
 
+export interface CollectedAnswer {
+  content: string
+  author?: string
+  upvotes: number
+  downvotes: number
+  quality_score: number
+  source_url?: string
+}
+
 export interface CollectResult {
   success: boolean
   total_collected: number
+  total_answers_collected?: number
   saved: number
+  saved_answers?: number
   questions: CollectedQuestion[]
 }
 
@@ -114,14 +139,35 @@ export async function collectQuestions(data: {
   max_results?: number
   platform?: string
   auto_save?: boolean
+  collect_answers?: boolean
+  max_answers_per_question?: number
+  min_answer_upvotes?: number
 }): Promise<CollectResult> {
   const response = await api.post('/api/problems/collect', data)
   return response.data
 }
 
 // 获取可用的采集平台列表
-export async function getCollectPlatforms(): Promise<string[]> {
+export async function getCollectPlatforms(): Promise<{available: string[], all: string[]}> {
   const response = await api.get('/api/problems/collect/platforms')
+  return response.data.data
+}
+
+// 获取问题的回答列表
+export async function getAnswersByProblemId(problemId: number): Promise<Answer[]> {
+  const response = await api.get(`/api/problems/${problemId}/answers`)
+  return response.data.data
+}
+
+// 诊断采集系统
+export async function diagnoseCollection(): Promise<any> {
+  const response = await api.get('/api/problems/collect/diagnose')
+  return response.data.data
+}
+
+// 测试平台API可用性
+export async function testPlatformAPIs(): Promise<any> {
+  const response = await api.get('/api/problems/collect/test-api')
   return response.data.data
 }
 

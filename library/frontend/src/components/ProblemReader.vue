@@ -40,6 +40,32 @@
           <div class="content-text" v-html="formatContent(problem.content)"></div>
         </div>
         
+        <!-- 回答列表 -->
+        <div v-if="answers.length > 0" class="answers-section">
+          <h3>高质量回答 ({{ answers.length }})</h3>
+          <div class="answers-list">
+            <div 
+              v-for="answer in answers" 
+              :key="answer.id"
+              class="answer-item"
+            >
+              <div class="answer-header">
+                <div class="answer-author-info">
+                  <span class="answer-author">{{ answer.author || '匿名用户' }}</span>
+                  <span class="answer-meta">
+                    <span class="upvotes">👍 {{ answer.upvotes }}</span>
+                    <span class="quality-score">质量: {{ answer.quality_score.toFixed(2) }}</span>
+                  </span>
+                </div>
+              </div>
+              <div class="answer-content" v-html="formatContent(answer.content)"></div>
+              <div v-if="answer.source_url" class="answer-footer">
+                <a :href="answer.source_url" target="_blank" class="source-link">查看原文</a>
+              </div>
+            </div>
+          </div>
+        </div>
+        
         <div v-if="analysis" class="analysis-section">
           <h3>AI分析结果</h3>
           <div class="analysis-content" v-html="formatContent(analysis)"></div>
@@ -73,7 +99,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import * as problemApi from '@/api/problems'
-import type { Problem } from '@/api/problems'
+import type { Problem, Answer } from '@/api/problems'
 
 const props = defineProps<{
   problem: Problem | null
@@ -83,13 +109,30 @@ const analysis = ref<string>('')
 const analyzing = ref(false)
 const showTagEditor = ref(false)
 const editingTags = ref<string[]>([])
+const answers = ref<Answer[]>([])
+const loadingAnswers = ref(false)
 
-watch(() => props.problem, (newProblem) => {
+watch(() => props.problem, async (newProblem) => {
   if (newProblem) {
     analysis.value = ''
     editingTags.value = [...(newProblem.tags || [])]
+    await loadAnswers(newProblem.id)
+  } else {
+    answers.value = []
   }
 }, { immediate: true })
+
+async function loadAnswers(problemId: number) {
+  loadingAnswers.value = true
+  try {
+    answers.value = await problemApi.getAnswersByProblemId(problemId)
+  } catch (error) {
+    console.error('加载回答失败:', error)
+    answers.value = []
+  } finally {
+    loadingAnswers.value = false
+  }
+}
 
 function getTagClass(tag: string): string {
   const tagClasses: { [key: string]: string } = {
@@ -290,6 +333,87 @@ const emit = defineEmits<{
   line-height: 1.8;
   color: #666;
   white-space: pre-wrap;
+}
+
+.answers-section {
+  margin-bottom: 32px;
+  border-top: 2px solid #eee;
+  padding-top: 24px;
+}
+
+.answers-section h3 {
+  margin: 0 0 20px 0;
+  font-size: 18px;
+  color: #333;
+}
+
+.answers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.answer-item {
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #42b983;
+}
+
+.answer-header {
+  margin-bottom: 12px;
+}
+
+.answer-author-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.answer-author {
+  font-weight: 600;
+  color: #42b983;
+  font-size: 14px;
+}
+
+.answer-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: #666;
+}
+
+.upvotes {
+  color: #007bff;
+}
+
+.quality-score {
+  color: #28a745;
+  font-weight: 500;
+}
+
+.answer-content {
+  line-height: 1.8;
+  color: #333;
+  white-space: pre-wrap;
+  margin-bottom: 12px;
+}
+
+.answer-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.source-link {
+  color: #42b983;
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.source-link:hover {
+  text-decoration: underline;
 }
 
 .analysis-section {

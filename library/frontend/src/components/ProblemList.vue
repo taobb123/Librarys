@@ -56,6 +56,34 @@
           <div class="form-group">
             <label>
               <input 
+                v-model="collectAnswers" 
+                type="checkbox" 
+              />
+              同时采集高质量回答
+            </label>
+          </div>
+          <div v-if="collectAnswers" class="form-group">
+            <label>每个问题最多采集回答数：</label>
+            <input 
+              v-model.number="maxAnswersPerQuestion" 
+              type="number" 
+              min="1"
+              max="10"
+              class="form-input"
+            />
+          </div>
+          <div v-if="collectAnswers" class="form-group">
+            <label>回答最小点赞数：</label>
+            <input 
+              v-model.number="minAnswerUpvotes" 
+              type="number" 
+              min="0"
+              class="form-input"
+            />
+          </div>
+          <div class="form-group">
+            <label>
+              <input 
                 v-model="collectAutoSave" 
                 type="checkbox" 
               />
@@ -63,6 +91,12 @@
             </label>
           </div>
           <div class="dialog-actions">
+            <button @click="handleTestAPI" class="btn-test-api" :disabled="collecting">
+              测试API
+            </button>
+            <button @click="handleDiagnose" class="btn-diagnose" :disabled="collecting">
+              诊断系统
+            </button>
             <button @click="handleCollect" class="btn-primary" :disabled="collecting || !collectTopic">
               {{ collecting ? '采集中...' : '开始采集' }}
             </button>
@@ -70,16 +104,35 @@
           </div>
           <div v-if="collectResult" class="collect-result">
             <p>采集完成！</p>
-            <p>共采集 {{ collectResult.total_collected }} 条，已保存 {{ collectResult.saved }} 条</p>
+            <p>共采集 {{ collectResult.total_collected }} 个问题，{{ collectResult.total_answers_collected || 0 }} 个回答</p>
+            <p v-if="collectAutoSave">已保存 {{ collectResult.saved }} 个问题，{{ collectResult.saved_answers || 0 }} 个回答</p>
+            <p v-if="collectResult.total_collected === 0" class="warning-text">
+              未采集到任何问题，请检查：
+              <br>1. 平台是否可用
+              <br>2. 采集条件是否过于严格
+              <br>3. 查看后端日志获取详细信息
+            </p>
             <div v-if="collectResult.questions.length > 0" class="collected-preview">
               <h4>采集预览：</h4>
               <div 
-                v-for="(q, index) in collectResult.questions.slice(0, 5)" 
+                v-for="(q, index) in collectResult.questions.slice(0, 3)" 
                 :key="index"
                 class="preview-item"
               >
-                <strong>{{ q.title }}</strong>
-                <span class="source-badge">{{ q.source }}</span>
+                <div class="preview-question">
+                  <strong>{{ q.title }}</strong>
+                  <span class="source-badge">{{ q.source }}</span>
+                </div>
+                <div v-if="q.answers && q.answers.length > 0" class="preview-answers">
+                  <div 
+                    v-for="(answer, aIndex) in q.answers.slice(0, 2)" 
+                    :key="aIndex"
+                    class="preview-answer"
+                  >
+                    <span class="answer-author">{{ answer.author || '匿名' }}</span>
+                    <span class="answer-stats">👍 {{ answer.upvotes }} | 质量: {{ answer.quality_score }}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -175,6 +228,9 @@ const collectTopic = ref('')
 const collectMaxResults = ref(50)
 const collectPlatform = ref('')
 const collectAutoSave = ref(true)
+const collectAnswers = ref(true)
+const maxAnswersPerQuestion = ref(3)
+const minAnswerUpvotes = ref(10)
 const collecting = ref(false)
 const collectResult = ref<CollectResult | null>(null)
 const availablePlatforms = ref<string[]>([])
@@ -293,7 +349,10 @@ async function handleCollect() {
       topic: collectTopic.value.trim(),
       max_results: collectMaxResults.value,
       platform: collectPlatform.value || undefined,
-      auto_save: collectAutoSave.value
+      auto_save: collectAutoSave.value,
+      collect_answers: collectAnswers.value,
+      max_answers_per_question: maxAnswersPerQuestion.value,
+      min_answer_upvotes: minAnswerUpvotes.value
     })
     
     collectResult.value = result
@@ -319,10 +378,104 @@ async function handleCollect() {
 
 async function loadAvailablePlatforms() {
   try {
-    availablePlatforms.value = await problemApi.getCollectPlatforms()
+    const result = await problemApi.getCollectPlatforms()
+    // 优先显示可用的平台，然后显示所有平台
+    availablePlatforms.value = result.available.length > 0 
+      ? result.available 
+      : (result.all.length > 0 ? result.all : ['知乎', '微博']) // 默认值
   } catch (error) {
     console.error('加载平台列表失败:', error)
-    availablePlatforms.value = ['知乎', '微博'] // 默认值
+    availablePlatforms.value = ['知乎', '微博', '微信热搜'] // 默认值
+  }
+}
+
+async function handleTestAPI() {
+  try {
+    const result = await problemApi.testPlatformAPIs()
+    console.log('API测试结果:', result)
+    
+    let message = '平台API可用性测试结果：\n\n'
+    
+    // 汇总信息
+    if (result.summary) {
+      message += `总平台数: ${result.summary.total_platforms}\n`
+      message += `✅ 可用平台: ${result.summary.available_platforms}\n`
+      message += `⚠️ 部分可用: ${result.summary.partial_platforms}\n`
+      message += `❌ 不可用平台: ${result.summary.unavailable_platforms}\n\n`
+    }
+    
+    // 各平台详情
+    if (result.platforms) {
+      Object.entries(result.platforms).forEach(([platform, data]: [string, any]) => {
+        message += `\n【${platform}】\n`
+        message += `整体状态: ${data.overall_status === 'available' ? '✅ 可用' : data.overall_status === 'partial' ? '⚠️ 部分可用' : '❌ 不可用'}\n`
+        
+        if (data.endpoints) {
+          Object.entries(data.endpoints).forEach(([endpoint, info]: [string, any]) => {
+            message += `\n  ${endpoint}:\n`
+            message += `    状态: ${info.accessible ? '✅ 可访问' : '❌ 不可访问'}\n`
+            if (info.status_code) {
+              message += `    HTTP状态码: ${info.status_code}\n`
+            }
+            if (info.response_time) {
+              message += `    响应时间: ${info.response_time}ms\n`
+            }
+            if (info.error) {
+              message += `    错误: ${info.error}\n`
+            }
+            if (info.has_data) {
+              message += `    有数据: ✅\n`
+            }
+          })
+        }
+      })
+    }
+    
+    alert(message)
+  } catch (error: any) {
+    alert('API测试失败：' + (error?.response?.data?.message || error?.message || '未知错误'))
+  }
+}
+
+async function handleDiagnose() {
+  try {
+    const result = await problemApi.diagnoseCollection()
+    console.log('诊断结果:', result)
+    
+    let message = '采集系统诊断结果：\n\n'
+    
+    // 采集器诊断
+    if (result.collectors) {
+      message += '采集器状态：\n'
+      result.collectors.collectors && Object.values(result.collectors.collectors).forEach((c: any) => {
+        message += `- ${c.name}: ${c.available ? '可用' : '不可用'}\n`
+        if (c.test_result) {
+          if (c.test_result.success) {
+            message += `  测试采集: 成功，获得 ${c.test_result.count} 个问题\n`
+          } else {
+            message += `  测试采集: 失败 - ${c.test_result.error}\n`
+          }
+        }
+      })
+      message += `\n总计: ${result.collectors.summary.available}/${result.collectors.summary.total} 可用\n\n`
+    }
+    
+    // 流程诊断
+    if (result.flow) {
+      message += '采集流程：\n'
+      if (result.flow.stages) {
+        Object.entries(result.flow.stages).forEach(([stage, data]: [string, any]) => {
+          message += `- ${stage}: ${JSON.stringify(data, null, 2)}\n`
+        })
+      }
+      if (result.flow.errors && result.flow.errors.length > 0) {
+        message += `\n错误: ${result.flow.errors.map((e: any) => e.error).join(', ')}\n`
+      }
+    }
+    
+    alert(message)
+  } catch (error: any) {
+    alert('诊断失败：' + (error?.response?.data?.message || error?.message || '未知错误'))
   }
 }
 
@@ -520,6 +673,55 @@ onMounted(() => {
   background: #5a6268;
 }
 
+.btn-test-api {
+  padding: 10px 20px;
+  background: #17a2b8;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.btn-test-api:hover:not(:disabled) {
+  background: #138496;
+}
+
+.btn-test-api:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-diagnose {
+  padding: 10px 20px;
+  background: #ffc107;
+  color: #333;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.btn-diagnose:hover:not(:disabled) {
+  background: #ffb300;
+}
+
+.btn-diagnose:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.warning-text {
+  margin-top: 12px;
+  padding: 12px;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  color: #856404;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .collect-result {
   margin-top: 20px;
   padding: 16px;
@@ -542,14 +744,43 @@ onMounted(() => {
 }
 
 .preview-item {
-  padding: 8px;
+  padding: 12px;
   background: white;
   border-radius: 4px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.preview-question {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.preview-answers {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid #e9ecef;
+}
+
+.preview-answer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 12px;
+  color: #666;
+}
+
+.answer-author {
+  font-weight: 500;
+  color: #42b983;
+}
+
+.answer-stats {
+  color: #999;
+  font-size: 11px;
 }
 
 .source-badge {

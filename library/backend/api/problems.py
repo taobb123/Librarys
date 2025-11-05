@@ -14,7 +14,9 @@ import requests
 problems_bp = Blueprint('problems', __name__, url_prefix='/api/problems')
 
 # 初始化采集服务（使用组合模式）
-collection_service = CollectionService()
+# 检查是否使用第三方API聚合平台
+use_third_party = os.getenv('USE_THIRD_PARTY_API', 'false').lower() == 'true'
+collection_service = CollectionService(use_third_party=use_third_party)
 
 @problems_bp.route('/list', methods=['GET'])
 def list_problems():
@@ -238,6 +240,9 @@ def collect_questions():
     max_results = data.get('max_results', 50)
     platform = data.get('platform')  # 可选，指定平台
     auto_save = data.get('auto_save', False)  # 是否自动保存
+    collect_answers = data.get('collect_answers', True)  # 是否采集回答
+    max_answers_per_question = data.get('max_answers_per_question', 3)  # 每个问题最多采集的回答数
+    min_answer_upvotes = data.get('min_answer_upvotes', 10)  # 回答最小点赞数要求
     
     if not topic:
         return jsonify({
@@ -250,7 +255,10 @@ def collect_questions():
             topic=topic,
             max_results=max_results,
             platform=platform,
-            auto_save=auto_save
+            auto_save=auto_save,
+            collect_answers=collect_answers,
+            max_answers_per_question=max_answers_per_question,
+            min_answer_upvotes=min_answer_upvotes
         )
         return jsonify(result)
     except Exception as e:
@@ -264,14 +272,93 @@ def get_collect_platforms():
     """获取可用的采集平台列表"""
     try:
         platforms = collection_service.get_available_platforms()
+        # 获取所有平台（包括不可用的），用于显示
+        all_platforms = collection_service.get_all_platforms()
         return jsonify({
             'success': True,
-            'data': platforms
+            'data': {
+                'available': platforms,
+                'all': all_platforms
+            }
         })
     except Exception as e:
         return jsonify({
             'success': False,
             'message': f'获取平台列表失败: {str(e)}'
+        }), 500
+
+@problems_bp.route('/<int:problem_id>/answers', methods=['GET'])
+def get_problem_answers(problem_id):
+    """获取问题的回答列表"""
+    try:
+        import backend.models.answer_model as answer_model
+        answers = answer_model.get_answers_by_problem_id(problem_id)
+        return jsonify({
+            'success': True,
+            'data': answers
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'获取回答失败: {str(e)}'
+        }), 500
+
+@problems_bp.route('/collect/diagnose', methods=['GET'])
+def diagnose_collection():
+    """诊断采集系统"""
+    try:
+        from backend.collectors.diagnostics import diagnose_collectors, check_collection_flow
+        from backend.collectors.interfaces import CollectionConfig
+        
+        # 基础诊断
+        basic_diagnosis = diagnose_collectors()
+        
+        # 流程诊断
+        test_config = CollectionConfig(
+            topic='股票',
+            max_results=5,
+            collect_answers=True,
+            max_answers_per_question=2,
+            min_answer_upvotes=10
+        )
+        flow_diagnosis = check_collection_flow(test_config)
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'collectors': basic_diagnosis,
+                'flow': flow_diagnosis
+            }
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'success': False,
+            'message': f'诊断失败: {str(e)}',
+            'traceback': traceback.format_exc()
+        }), 500
+
+@problems_bp.route('/collect/test-api', methods=['GET'])
+def test_platform_apis():
+    """测试平台API可用性"""
+    try:
+        from backend.collectors.api_test import test_all_platforms
+        
+        print("[API测试] 收到API可用性测试请求")
+        results = test_all_platforms()
+        
+        return jsonify({
+            'success': True,
+            'data': results
+        })
+    except Exception as e:
+        import traceback
+        print(f"[API测试] 测试失败: {str(e)}")
+        print(f"[API测试] 错误详情: {traceback.format_exc()}")
+        return jsonify({
+            'success': False,
+            'message': f'API测试失败: {str(e)}',
+            'traceback': traceback.format_exc()
         }), 500
 
 def generate_fallback_analysis(problem):

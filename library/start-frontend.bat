@@ -53,7 +53,7 @@ echo ========================================
 echo.
 
 REM 启动前端
-echo [信息] 正在启动前端服务 (端口 5173)...
+echo [信息] 正在启动前端服务 - 端口 5173
 echo [信息] 前端目录: %FRONTEND_DIR%
 start "Library-Frontend" cmd /k "cd /d \"%FRONTEND_DIR%\" && npm run dev"
 echo [信息] 前端窗口已打开
@@ -65,10 +65,10 @@ echo ========================================
 echo.
 echo 前端服务: http://localhost:5173
 echo.
-echo 提示：
+echo 提示:
 echo - 前端已在新窗口中启动
 echo - 关闭前端窗口即可停止服务
-echo - 确保后端服务已启动 (http://localhost:5000)
+echo - 确保后端服务已启动 - http://localhost:5000
 echo.
 echo 按任意键关闭此窗口...
 pause >nul

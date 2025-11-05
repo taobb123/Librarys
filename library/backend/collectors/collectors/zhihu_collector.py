@@ -3,7 +3,9 @@
 使用组合模式，组合HTTP客户端和速率限制器
 """
 from typing import List
-from backend.collectors.interfaces import CollectedQuestion, CollectionConfig, QuestionCollector
+from backend.collectors.interfaces import (
+    CollectedQuestion, CollectedAnswer, CollectionConfig, QuestionCollector
+)
 from backend.collectors.collectors.base_collector import HTTPClient, RateLimiter
 from datetime import datetime
 import json
@@ -18,11 +20,18 @@ class ZhihuCollector:
     
     def __init__(self):
         # 组合HTTP客户端
-        self.http_client = HTTPClient(timeout=30)
-        # 组合速率限制器
-        self.rate_limiter = RateLimiter(requests_per_second=0.5)
-        self.api_key = os.getenv('ZHIHU_API_KEY', '')
-        self.api_url = os.getenv('ZHIHU_API_URL', 'https://www.zhihu.com/api/v4/search_v3')
+        self.http_client = HTTPClient(timeout=30, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            'Referer': 'https://www.zhihu.com/'
+        })
+        # 组合速率限制器（知乎API限制较严格，降低请求频率）
+        self.rate_limiter = RateLimiter(requests_per_second=0.3)
+        # 知乎搜索API（公开接口，无需认证）
+        self.search_api = 'https://www.zhihu.com/api/v4/search_v3'
+        self.question_api = 'https://www.zhihu.com/api/v4/questions'
+        self.answer_api = 'https://www.zhihu.com/api/v4/questions/{question_id}/answers'
     
     def get_platform_name(self) -> str:
         """获取平台名称"""
@@ -30,7 +39,7 @@ class ZhihuCollector:
     
     def is_available(self) -> bool:
         """检查是否可用"""
-        # 如果没有配置API，使用模拟数据
+        # 知乎API是公开的，始终可用
         return True
     
     def collect(self, config: CollectionConfig) -> List[CollectedQuestion]:
@@ -38,95 +47,221 @@ class ZhihuCollector:
         questions = []
         
         try:
-            # 如果有API配置，使用真实API
-            if self.api_key:
-                questions = self._collect_from_api(config)
-            else:
-                # 否则使用模拟数据（用于演示）
-                questions = self._collect_mock_data(config)
+            # 使用真实API采集
+            questions = self._collect_from_api(config)
+            print(f"[知乎采集器] 成功采集到 {len(questions)} 个问题")
         except Exception as e:
-            print(f"知乎采集失败: {str(e)}")
-            # 如果API失败，使用模拟数据作为降级方案
-            questions = self._collect_mock_data(config)
+            import traceback
+            print(f"[知乎采集器] 采集失败: {str(e)}")
+            print(f"[知乎采集器] 错误详情: {traceback.format_exc()}")
+            # API失败时返回空列表，不降级到模拟数据
+            questions = []
         
         return questions
     
     def _collect_from_api(self, config: CollectionConfig) -> List[CollectedQuestion]:
-        """从API采集"""
+        """从真实API采集"""
         questions = []
-        self.rate_limiter.wait_if_needed()
         
         try:
-            params = {
+            # 搜索问题
+            self.rate_limiter.wait_if_needed()
+            search_params = {
                 'q': config.topic,
-                't': 'question',
-                'limit': min(config.max_results, 20),
-                'offset': 0
+                't': 'general',
+                'correction': 1,
+                'offset': 0,
+                'limit': min(config.max_results * 2, 50),  # 多获取一些，因为可能过滤
+                'lc_idx': 0,
+                'show_all_topics': 0
             }
             
-            response = self.http_client.get(self.api_url, params=params)
-            if response.status_code == 200:
-                data = response.json()
-                for item in data.get('data', [])[:config.max_results]:
-                    if item.get('object', {}).get('type') == 'question':
-                        question_data = item['object']
-                        questions.append(CollectedQuestion(
-                            title=question_data.get('title', ''),
-                            content=question_data.get('excerpt', ''),
+            print(f"[知乎采集器] 搜索主题: {config.topic}")
+            response = self.http_client.get(self.search_api, params=search_params)
+            
+            if response.status_code != 200:
+                print(f"[知乎采集器] 搜索API返回状态码: {response.status_code}")
+                return questions
+            
+            data = response.json()
+            search_results = data.get('data', [])
+            print(f"[知乎采集器] 搜索到 {len(search_results)} 个结果")
+            
+            # 提取问题
+            question_ids = []
+            for item in search_results:
+                obj = item.get('object', {})
+                obj_type = obj.get('type')
+                
+                # 查找问题
+                if obj_type == 'question':
+                    question_id = obj.get('id')
+                    if question_id:
+                        question_ids.append((question_id, obj))
+                elif obj_type == 'answer':
+                    # 如果是回答，获取关联的问题
+                    question = obj.get('question', {})
+                    question_id = question.get('id')
+                    if question_id and question_id not in [qid for qid, _ in question_ids]:
+                        question_ids.append((question_id, question))
+            
+            # 去重并限制数量
+            seen_ids = set()
+            unique_question_ids = []
+            for qid, obj in question_ids:
+                if qid not in seen_ids and len(unique_question_ids) < config.max_results:
+                    seen_ids.add(qid)
+                    unique_question_ids.append((qid, obj))
+            
+            print(f"[知乎采集器] 提取到 {len(unique_question_ids)} 个唯一问题")
+            
+            # 获取每个问题的详细信息
+            for question_id, question_obj in unique_question_ids:
+                try:
+                    self.rate_limiter.wait_if_needed()
+                    
+                    # 获取问题详情
+                    question_detail_url = f"{self.question_api}/{question_id}"
+                    detail_response = self.http_client.get(question_detail_url)
+                    
+                    if detail_response.status_code == 200:
+                        question_data = detail_response.json()
+                        
+                        # 采集回答（如果配置要求）
+                        answers = []
+                        if config.collect_answers:
+                            answers = self._collect_answers(question_id, config)
+                        
+                        # 创建问题对象
+                        created_time = question_data.get('created', 0)
+                        if created_time:
+                            try:
+                                created_at = datetime.fromtimestamp(created_time)
+                            except:
+                                created_at = datetime.now()
+                        else:
+                            created_at = datetime.now()
+                        
+                        question = CollectedQuestion(
+                            title=question_data.get('title', question_obj.get('title', '')),
+                            content=question_data.get('detail', question_obj.get('excerpt', '')),
                             source=self.get_platform_name(),
-                            source_url=f"https://www.zhihu.com/question/{question_data.get('id', '')}",
-                            author=question_data.get('author', {}).get('name'),
-                            created_at=datetime.fromtimestamp(question_data.get('created_time', 0)),
+                            source_url=f"https://www.zhihu.com/question/{question_id}",
+                            author=None,  # 问题通常没有单一作者
+                            created_at=created_at,
                             tags=[config.topic],
-                            metadata={'zhihu_id': question_data.get('id')}
-                        ))
+                            metadata={
+                                'zhihu_id': question_id,
+                                'answer_count': question_data.get('answer_count', 0),
+                                'follower_count': question_data.get('follower_count', 0)
+                            },
+                            answers=answers
+                        )
+                        questions.append(question)
+                        
+                except Exception as e:
+                    print(f"[知乎采集器] 获取问题 {question_id} 详情失败: {str(e)}")
+                    # 如果获取详情失败，使用搜索结果中的基本信息
+                    question = CollectedQuestion(
+                        title=question_obj.get('title', ''),
+                        content=question_obj.get('excerpt', ''),
+                        source=self.get_platform_name(),
+                        source_url=f"https://www.zhihu.com/question/{question_id}",
+                        author=None,
+                        created_at=datetime.now(),
+                        tags=[config.topic],
+                        metadata={'zhihu_id': question_id},
+                        answers=[]
+                    )
+                    questions.append(question)
+                    
         except Exception as e:
-            print(f"知乎API调用失败: {str(e)}")
+            import traceback
+            print(f"[知乎采集器] API调用异常: {str(e)}")
+            print(f"[知乎采集器] 异常详情: {traceback.format_exc()}")
         
         return questions
     
-    def _collect_mock_data(self, config: CollectionConfig) -> List[CollectedQuestion]:
-        """生成模拟数据（用于演示和测试）"""
-        mock_questions = [
-            {
-                'title': f'{config.topic}投资有哪些风险需要关注？',
-                'content': f'关于{config.topic}投资，我们需要关注哪些主要风险？包括市场风险、流动性风险、信用风险等方面。',
-                'author': '知乎用户'
-            },
-            {
-                'title': f'如何评估{config.topic}的投资价值？',
-                'content': f'评估{config.topic}投资价值需要考虑哪些因素？基本面分析、技术面分析、市场情绪等。',
-                'author': '知乎用户'
-            },
-            {
-                'title': f'{config.topic}市场的最新趋势是什么？',
-                'content': f'当前{config.topic}市场的最新趋势分析，包括政策影响、市场情绪、资金流向等。',
-                'author': '知乎用户'
-            },
-            {
-                'title': f'新手如何开始{config.topic}投资？',
-                'content': f'作为{config.topic}投资新手，应该从哪些方面入手？需要学习哪些基础知识？',
-                'author': '知乎用户'
-            },
-            {
-                'title': f'{config.topic}投资中的常见误区有哪些？',
-                'content': f'在{config.topic}投资过程中，投资者容易陷入哪些误区？如何避免这些误区？',
-                'author': '知乎用户'
+    def _collect_answers(self, question_id: str, config: CollectionConfig) -> List[CollectedAnswer]:
+        """采集问题的回答"""
+        answers = []
+        
+        try:
+            self.rate_limiter.wait_if_needed()
+            
+            # 获取回答列表
+            answer_url = self.answer_api.format(question_id=question_id)
+            params = {
+                'include': 'data[*].is_normal,admin_closed_comment,reward_info,content,comment_count,created_time,updated_time,excerpt,is_labeled,label_info,relationship.is_author,voting,is_thanked,is_nothelp,is_recognized;data[*].author.badge[*].topics',
+                'limit': min(config.max_answers_per_question * 3, 20),  # 多获取一些用于筛选
+                'offset': 0,
+                'platform': 'desktop',
+                'sort_by': 'default'
             }
-        ]
+            
+            response = self.http_client.get(answer_url, params=params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                answer_list = data.get('data', [])
+                
+                # 筛选高质量回答
+                for answer_data in answer_list:
+                    upvote_count = answer_data.get('voteup_count', 0)
+                    
+                    # 过滤低点赞数回答
+                    if upvote_count < config.min_answer_upvotes:
+                        continue
+                    
+                    # 提取回答内容
+                    content = answer_data.get('content', '')
+                    # 如果是HTML格式，提取纯文本
+                    if content and '<' in content:
+                        import re
+                        # 简单去除HTML标签
+                        content = re.sub(r'<[^>]+>', '', content)
+                        content = content.replace('&nbsp;', ' ').strip()
+                    
+                    if not content:
+                        continue
+                    
+                    # 获取作者信息
+                    author = answer_data.get('author', {})
+                    author_name = author.get('name', '匿名用户')
+                    
+                    # 创建回答对象
+                    created_time = answer_data.get('created_time', 0)
+                    if created_time:
+                        try:
+                            created_at = datetime.fromtimestamp(created_time)
+                        except:
+                            created_at = datetime.now()
+                    else:
+                        created_at = datetime.now()
+                    
+                    answer = CollectedAnswer(
+                        content=content,
+                        author=author_name,
+                        upvotes=upvote_count,
+                        downvotes=answer_data.get('votedown_count', 0),
+                        source_url=f"https://www.zhihu.com/answer/{answer_data.get('id', '')}",
+                        created_at=created_at,
+                        metadata={
+                            'zhihu_answer_id': answer_data.get('id'),
+                            'comment_count': answer_data.get('comment_count', 0)
+                        }
+                    )
+                    answers.append(answer)
+                    
+                    # 限制回答数量
+                    if len(answers) >= config.max_answers_per_question:
+                        break
+                
+                # 按点赞数排序
+                answers.sort(key=lambda a: a.upvotes, reverse=True)
+                
+        except Exception as e:
+            print(f"[知乎采集器] 采集问题 {question_id} 的回答失败: {str(e)}")
         
-        questions = []
-        for i, q in enumerate(mock_questions[:config.max_results]):
-            questions.append(CollectedQuestion(
-                title=q['title'],
-                content=q['content'],
-                source=self.get_platform_name(),
-                source_url=f"https://www.zhihu.com/question/mock_{i}",
-                author=q['author'],
-                created_at=datetime.now(),
-                tags=[config.topic],
-                metadata={'mock': True}
-            ))
-        
-        return questions
+        return answers
 

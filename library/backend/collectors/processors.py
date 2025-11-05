@@ -82,19 +82,25 @@ class ContentQualityFilter:
     
     def __call__(self, question: CollectedQuestion) -> bool:
         """过滤低质量问题"""
-        # 检查是否包含问号或疑问词
-        question_words = ['什么', '如何', '为什么', '怎么', '哪些', '哪个', '?', '？', '吗']
-        has_question = any(word in question.title or word in question.content 
-                          for word in question_words)
-        
-        # 检查是否过于简短
+        # 检查是否过于简短（主要检查）
         is_too_short = len(question.title) < 3 or len(question.content) < 5
+        if is_too_short:
+            return False
         
         # 检查是否包含过多特殊字符
         special_char_ratio = sum(1 for c in question.title if not c.isalnum() and c not in '，。！？、') / max(len(question.title), 1)
         has_too_many_special = special_char_ratio > 0.5
+        if has_too_many_special:
+            return False
         
-        return has_question and not is_too_short and not has_too_many_special
+        # 检查是否包含问号或疑问词（可选，不强制要求）
+        # 这样可以让更多有效问题通过
+        question_words = ['什么', '如何', '为什么', '怎么', '哪些', '哪个', '?', '？', '吗', '怎样']
+        has_question = any(word in question.title or word in question.content 
+                          for word in question_words)
+        
+        # 如果有疑问词，直接通过；如果没有，也允许通过（只要不是太短或太多特殊字符）
+        return True
 
 
 class DatabaseDuplicateChecker:

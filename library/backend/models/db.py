@@ -86,6 +86,26 @@ def init_database():
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
+            # 创建回答表
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS answers (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    problem_id INT NOT NULL COMMENT '问题ID',
+                    content TEXT NOT NULL COMMENT '回答内容',
+                    author VARCHAR(100) COMMENT '回答作者',
+                    upvotes INT DEFAULT 0 COMMENT '点赞数',
+                    downvotes INT DEFAULT 0 COMMENT '点踩数',
+                    quality_score DECIMAL(5,3) DEFAULT 0.000 COMMENT '质量评分(0-1)',
+                    source_url VARCHAR(500) COMMENT '来源链接',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (problem_id) REFERENCES problems(id) ON DELETE CASCADE,
+                    INDEX idx_problem_id (problem_id),
+                    INDEX idx_quality_score (quality_score),
+                    INDEX idx_upvotes (upvotes)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
             # 创建系统配置表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS system_config (
