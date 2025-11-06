@@ -17,6 +17,7 @@ class Config:
     # Flask配置
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
     DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
+    PORT = int(os.getenv('FLASK_PORT', 5001))  # 服务器端口，默认5001
     
     # 第三方API配置
     # 聚合数据API密钥（用于微信热搜等）

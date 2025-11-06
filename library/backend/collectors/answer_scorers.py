@@ -123,3 +123,5 @@ class DefaultAnswerScorer:
         """计算回答质量评分"""
         return self.composite.score(answer)
 
+
+

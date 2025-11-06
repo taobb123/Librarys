@@ -107,3 +107,5 @@ def list_available_platforms() -> List[str]:
     """列出支持的平台"""
     return ['zhihu', 'weibo']
 
+
+

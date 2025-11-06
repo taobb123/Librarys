@@ -24,5 +24,5 @@ if __name__ == '__main__':
     
     # 启动Flask应用
     from backend.config import Config
-    app.run(host='0.0.0.0', port=5000, debug=Config.DEBUG)
+    app.run(host='0.0.0.0', port=Config.PORT, debug=Config.DEBUG)
 
