@@ -2,7 +2,7 @@
 图书相关API
 """
 from flask import Blueprint, jsonify, request, send_file
-from backend.models.book_model import get_all_books, get_books_by_category, get_book_by_id, scan_books_directory, delete_book
+from backend.models.book_model import get_all_books, get_books_by_category, get_book_by_id, scan_books_directory, delete_book, get_favorited_books, toggle_favorite, is_favorited
 from backend.models.bookmark_model import add_bookmark, get_bookmarks_by_book, update_bookmark, delete_bookmark
 from backend.config import Config
 import os
@@ -21,7 +21,10 @@ books_bp = Blueprint('books', __name__, url_prefix='/api/books')
 def list_books():
     """获取图书列表"""
     category = request.args.get('category')
-    if category:
+    # 如果category是'收藏'，返回收藏的图书列表
+    if category == '收藏':
+        books = get_favorited_books()
+    elif category:
         books = get_books_by_category(category)
     else:
         books = get_all_books()
@@ -384,4 +387,44 @@ def delete_book_api(book_id):
     
     except Exception as e:
         return jsonify({'success': False, 'message': f'删除失败: {str(e)}'}), 500
+
+@books_bp.route('/<int:book_id>/favorite', methods=['POST'])
+def toggle_favorite_api(book_id):
+    """切换图书的收藏状态"""
+    book = get_book_by_id(book_id)
+    if not book:
+        return jsonify({'success': False, 'message': '图书不存在'}), 404
+    
+    try:
+        is_favorited_result = toggle_favorite(book_id)
+        if is_favorited_result is None:
+            return jsonify({'success': False, 'message': '操作失败'}), 500
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'is_favorited': is_favorited_result
+            },
+            'message': '已收藏' if is_favorited_result else '已取消收藏'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'操作失败: {str(e)}'}), 500
+
+@books_bp.route('/<int:book_id>/favorite', methods=['GET'])
+def get_favorite_status_api(book_id):
+    """获取图书的收藏状态"""
+    book = get_book_by_id(book_id)
+    if not book:
+        return jsonify({'success': False, 'message': '图书不存在'}), 404
+    
+    try:
+        is_favorited_result = is_favorited(book_id)
+        return jsonify({
+            'success': True,
+            'data': {
+                'is_favorited': is_favorited_result
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取状态失败: {str(e)}'}), 500
 

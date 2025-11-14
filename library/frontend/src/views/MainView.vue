@@ -187,7 +187,7 @@ onMounted(async () => {
 
 .top-toolbar {
   position: absolute;
-  top: 16px;
+  top: 80px;
   right: 16px;
   z-index: 100;
   display: flex;

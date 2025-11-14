@@ -63,12 +63,35 @@ def init_database():
                     year INT COMMENT '年代',
                     category VARCHAR(50) COMMENT '分类(文学/金融/科技/历史/艺术)',
                     file_size BIGINT COMMENT '文件大小(字节)',
+                    favorited_at TIMESTAMP NULL COMMENT '收藏时间，NULL表示未收藏',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     INDEX idx_category (category),
-                    INDEX idx_author (author)
+                    INDEX idx_author (author),
+                    INDEX idx_favorited_at (favorited_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            
+            # 为已存在的表添加收藏字段（如果不存在）
+            try:
+                cursor.execute("""
+                    ALTER TABLE books 
+                    ADD COLUMN favorited_at TIMESTAMP NULL COMMENT '收藏时间，NULL表示未收藏' 
+                    AFTER file_size
+                """)
+            except Exception:
+                # 字段已存在，忽略错误
+                pass
+            
+            # 为已存在的表添加收藏字段索引（如果不存在）
+            try:
+                cursor.execute("""
+                    ALTER TABLE books 
+                    ADD INDEX idx_favorited_at (favorited_at)
+                """)
+            except Exception:
+                # 索引已存在，忽略错误
+                pass
             
             # 创建问题表
             cursor.execute("""

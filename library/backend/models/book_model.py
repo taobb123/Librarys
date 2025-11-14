@@ -10,7 +10,7 @@ def get_all_books():
     try:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT id, title, file_path, file_format, author, country, year, category, file_size
+                SELECT id, title, file_path, file_format, author, country, year, category, file_size, favorited_at
                 FROM books
                 ORDER BY created_at DESC
             """)
@@ -24,7 +24,7 @@ def get_books_by_category(category):
     try:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT id, title, file_path, file_format, author, country, year, category, file_size
+                SELECT id, title, file_path, file_format, author, country, year, category, file_size, favorited_at
                 FROM books
                 WHERE category = %s
                 ORDER BY created_at DESC
@@ -39,7 +39,7 @@ def get_book_by_id(book_id):
     try:
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT id, title, file_path, file_format, author, country, year, category, file_size
+                SELECT id, title, file_path, file_format, author, country, year, category, file_size, favorited_at
                 FROM books
                 WHERE id = %s
             """, (book_id,))
@@ -68,6 +68,9 @@ def get_categories():
     for category in categories:
         books = get_books_by_category(category)
         result[category] = len(books)
+    # 添加收藏分类
+    favorited_books = get_favorited_books()
+    result['收藏'] = len(favorited_books)
     return result
 
 def delete_book(book_id):
@@ -78,6 +81,72 @@ def delete_book(book_id):
             cursor.execute("DELETE FROM books WHERE id = %s", (book_id,))
             conn.commit()
             return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+def get_favorited_books():
+    """获取所有收藏的图书列表，按收藏时间倒序排列"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT id, title, file_path, file_format, author, country, year, category, file_size, favorited_at
+                FROM books
+                WHERE favorited_at IS NOT NULL
+                ORDER BY favorited_at DESC
+            """)
+            return cursor.fetchall()
+    finally:
+        conn.close()
+
+def toggle_favorite(book_id):
+    """切换图书的收藏状态，返回新的收藏状态"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            # 先获取当前状态
+            cursor.execute("""
+                SELECT favorited_at FROM books WHERE id = %s
+            """, (book_id,))
+            result = cursor.fetchone()
+            if not result:
+                return None
+            
+            # 如果已收藏，则取消收藏；如果未收藏，则收藏
+            if result['favorited_at']:
+                # 取消收藏
+                cursor.execute("""
+                    UPDATE books 
+                    SET favorited_at = NULL, updated_at = NOW()
+                    WHERE id = %s
+                """, (book_id,))
+                is_favorited = False
+            else:
+                # 收藏
+                cursor.execute("""
+                    UPDATE books 
+                    SET favorited_at = NOW(), updated_at = NOW()
+                    WHERE id = %s
+                """, (book_id,))
+                is_favorited = True
+            
+            conn.commit()
+            return is_favorited
+    finally:
+        conn.close()
+
+def is_favorited(book_id):
+    """检查图书是否已收藏"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT favorited_at FROM books WHERE id = %s
+            """, (book_id,))
+            result = cursor.fetchone()
+            if not result:
+                return False
+            return result['favorited_at'] is not None
     finally:
         conn.close()
 

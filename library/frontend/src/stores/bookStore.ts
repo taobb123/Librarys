@@ -38,6 +38,10 @@ export const useBookStore = defineStore('book', () => {
     if (!selectedCategory.value) {
       return books.value
     }
+    // 如果选择的是"收藏"分类，后端已经返回了收藏的图书，直接返回
+    if (selectedCategory.value === '收藏') {
+      return books.value
+    }
     return books.value.filter(book => book.category === selectedCategory.value)
   })
 
@@ -158,6 +162,26 @@ export const useBookStore = defineStore('book', () => {
     }
   }
 
+  async function toggleFavorite() {
+    if (!currentBook.value) return
+    try {
+      const result = await bookApi.toggleFavorite(currentBook.value.id)
+      // 更新当前图书的收藏状态
+      if (currentBook.value) {
+        currentBook.value.favorited_at = result.is_favorited ? new Date().toISOString() : null
+      }
+      // 更新图书列表中的收藏状态
+      const bookIndex = books.value.findIndex(b => b.id === currentBook.value!.id)
+      if (bookIndex !== -1) {
+        books.value[bookIndex].favorited_at = result.is_favorited ? new Date().toISOString() : null
+      }
+      return result.is_favorited
+    } catch (error) {
+      console.error('切换收藏状态失败:', error)
+      throw error
+    }
+  }
+
   // 恢复上一次的图书（在应用启动时调用）
   async function restoreLastBook() {
     try {
@@ -203,6 +227,7 @@ export const useBookStore = defineStore('book', () => {
     removeBookmark,
     clearCurrentBook,
     restoreLastBook,
+    toggleFavorite,
   }
 })
 

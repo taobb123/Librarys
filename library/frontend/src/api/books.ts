@@ -23,6 +23,7 @@ export interface Book {
   year?: number
   category?: string
   file_size?: number
+  favorited_at?: string | null
 }
 
 export interface Category {
@@ -156,5 +157,17 @@ export async function openFileLocation(bookId: number): Promise<void> {
 // 从文件夹删除图书
 export async function deleteBook(bookId: number): Promise<void> {
   await api.delete(`/api/books/${bookId}`)
+}
+
+// 切换图书收藏状态
+export async function toggleFavorite(bookId: number): Promise<{ is_favorited: boolean }> {
+  const response = await api.post(`/api/books/${bookId}/favorite`)
+  return response.data.data
+}
+
+// 获取图书收藏状态
+export async function getFavoriteStatus(bookId: number): Promise<{ is_favorited: boolean }> {
+  const response = await api.get(`/api/books/${bookId}/favorite`)
+  return response.data.data
 }
 

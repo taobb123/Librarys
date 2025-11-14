@@ -34,6 +34,16 @@
           <button @click="addCurrentBookmark" class="tool-btn primary">
             添加书签
           </button>
+          <button 
+            @click="handleToggleFavorite" 
+            class="tool-btn favorite-btn"
+            :class="{ 'favorited': isFavorited }"
+            :title="isFavorited ? '取消收藏' : '收藏'"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -156,6 +166,9 @@ const currentBook = computed(() => bookStore.currentBook)
 const bookmarks = computed(() => bookStore.bookmarks)
 const loading = ref(false)
 const error = ref('')
+const isFavorited = computed(() => {
+  return currentBook.value?.favorited_at != null
+})
 
 // UI 状态持久化
 const STORAGE_KEYS = {
@@ -445,6 +458,15 @@ async function loadBook() {
     loading.value = false
   }
 }
+
+async function handleToggleFavorite() {
+  if (!currentBook.value) return
+  try {
+    await bookStore.toggleFavorite()
+  } catch (error: any) {
+    alert('操作失败：' + (error.message || '未知错误'))
+  }
+}
 </script>
 
 <style scoped>
@@ -555,6 +577,26 @@ async function loadBook() {
 
 .tool-btn.primary:hover {
   background: #35a372;
+}
+
+.tool-btn.favorite-btn {
+  color: #999;
+  transition: all 0.2s;
+}
+
+.tool-btn.favorite-btn:hover {
+  color: #ff6b9d;
+  background: #ffe0e8;
+}
+
+.tool-btn.favorite-btn.favorited {
+  color: #ff6b9d;
+  background: #ffe0e8;
+}
+
+.tool-btn.favorite-btn.favorited:hover {
+  color: #ff1744;
+  background: #ffccd5;
 }
 
 .tool-btn svg {
